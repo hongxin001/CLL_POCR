@@ -145,6 +145,52 @@ def comp_train(train_loader, model, optimizer, epoch, consistency_criterion):
 
     return losses.avg
 
+
+def base_train(train_loader, model, optimizer, epoch):
+    """
+        Run one train epoch
+    """
+    data_time = AverageMeter()
+    batch_time = AverageMeter()
+    losses = AverageMeter()
+    top1 = AverageMeter()
+    end = time.time()
+
+    model.train()
+    for i, (x_aug0, x_aug1, x_aug2, y, comp_y) in enumerate(train_loader):
+        # measure data loading time
+        data_time.update(time.time() - end)
+        # complementary label
+        comp_y = comp_y.float().cuda()
+        # original samples with pre-processing
+        x_aug0 = x_aug0.cuda()
+        y_pred_aug0 = model(x_aug0)
+
+        # complementary loss: SCL-LOG
+        comp_loss = -torch.mean(torch.sum(torch.log(1.0000001 - F.softmax(y_pred_aug0, dim=1)) * comp_y, dim=1))
+
+        # Unified loss
+        final_loss = comp_loss
+
+        optimizer.zero_grad()
+        final_loss.backward()
+        optimizer.step()
+
+        losses.update(final_loss.item(), x_aug0.size(0))
+        # measure elapsed time
+        batch_time.update(time.time() - end)
+        end = time.time()
+
+        if i % 50 == 0:
+            logging.info('Epoch: [{0}][{1}/{2}]\t'
+                         'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                         'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
+                         'Loss {loss.val:.4f} ({loss.avg:.4f})\t'.format(
+                epoch, i, len(train_loader), batch_time=batch_time,
+                data_time=data_time, loss=losses))
+
+    return losses.avg
+
 def validate(valid_loader, model, criterion, epoch):
     batch_time = AverageMeter()
     losses = AverageMeter()
@@ -224,7 +270,9 @@ def partial_output_cosistency_training():
 
         logging.info('current lr {:.5e}'.format(optimizer.param_groups[0]['lr']))
         # training
-        trainloss = comp_train(train_loader, model, optimizer, epoch, consistency_criterion)
+        # trainloss = comp_train(train_loader, model, optimizer, epoch, consistency_criterion)
+        trainloss = base_train(train_loader, model, optimizer, epoch)
+
         # lr_step
         scheduler.step()
         # evaluate on validation set
